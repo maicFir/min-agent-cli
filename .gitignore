@@ -1,0 +1,15 @@
+# 1. 极其重要：锁死环境变量和私钥文件，绝对不允许提交
+.env
+.env.local
+*.json
+!package.json
+
+# 2. 忽略 Node.js 依赖包目录
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 3. 忽略 TypeScript 编译出来的 JavaScript 产物
+#（如果你是用 npx tsx 直接运行，可以把这些加进来防止误生成 js 文件占空间）
+dist/
