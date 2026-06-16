@@ -4,7 +4,9 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "build": "tsc --noEmit && tsup core/agent.ts --format esm --clean --sourcemap",
+        "build2": "tsc -p tsconfig.build.json"
     },
     "keywords": [],
     "author": "",
@@ -13,7 +15,8 @@
     "dependencies": {
         "@google/genai": "^2.8.0",
         "ai": "^6.0.197",
-        "dotenv": "^17.4.2"
+        "dotenv": "^17.4.2",
+        "tsup": "^8.5.1"
     },
     "devDependencies": {
         "@types/node": "^25.9.1",

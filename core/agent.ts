@@ -1,20 +1,28 @@
-import {
-  GoogleGenAI,
-  ContentListUnion,
-  Content,
-  Part
-} from "@google/genai";
+import { GoogleGenAI, ContentListUnion, Content, Part } from "@google/genai";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
 import * as dotenv from "dotenv";
 
-import { readfileTool, writefileTool, readDirectoryTool } from "./mcp_tool.ts"
-import { writeFileDeclaration, readDirectoryDeclaration, readFileDeclaration } from "./mcp_tool_declaration.ts"
+
+import {
+  readfileTool,
+  writefileTool,
+  readDirectoryTool,
+  execCommandTool,
+} from "./mcp_tool";
+import {
+  writeFileDeclaration,
+  readDirectoryDeclaration,
+  readFileDeclaration,
+  executeCommandDeclaration,
+  toolsName
+} from "./mcp_tool_declaration";
+
+
 
 // 定义记忆缓存文件的路径
 const CACHE_FILE_PATH = path.resolve(process.cwd(), ".agent_cache.json");
-
 
 // 1、环境配置
 dotenv.config();
@@ -31,12 +39,12 @@ const ai = new GoogleGenAI({
   apiKey,
 });
 
-
 // 工具映射表
 const toolsMap: Record<string, Function> = {
-  readFile: readfileTool,
-  writeFile: writefileTool,
-  readDirectory: readDirectoryTool,
+  [toolsName.readFile]: readfileTool,
+  [toolsName.writeFile]: writefileTool,
+  [toolsName.readDirectory]: readDirectoryTool,
+  [toolsName.executeCommand]: execCommandTool,
 };
 
 const config = {
@@ -48,6 +56,7 @@ const config = {
         readFileDeclaration,
         writeFileDeclaration,
         readDirectoryDeclaration,
+        executeCommandDeclaration,
       ],
     },
   ],
@@ -103,35 +112,36 @@ async function handleAgentTurn(userInput: string) {
 
     // 检查 AI 是否需要调用工具
     if (result?.functionCalls && result.functionCalls.length > 0) {
-      // 4. 执行工具
-      const functionCall = result.functionCalls[0];
-      if (!functionCall || !functionCall.name) break;
 
-      const toolName = functionCall.name;
-      const args = functionCall.args as any;
+      // 建立一个本轮并行的响应集
+      const functionResponses: Part[] = [];
 
-      console.log(
-        `🔧 Agent 调用了工具: ${toolName}，参数: ${JSON.stringify(args)}`,
-      );
-      let toolResult = "";
-      if (toolName && toolsMap[toolName]) {
-        try {
-          toolResult = toolsMap[toolName](args);
-        } catch (error) {
-          toolResult = `Error executing tool: ${toolName}`;
+      for (let functionCall of result.functionCalls) {
+        if (!functionCall || !functionCall.name) break;
+        const toolName = functionCall.name;
+        const args = functionCall.args as any;
+        console.log(
+          `🔧 Agent 调用了工具: ${toolName}，参数: ${JSON.stringify(args)}`,
+        );
+        let toolResult = "";
+        if (toolName && toolsMap[toolName]) {
+          try {
+            toolResult = toolsMap[toolName](args);
+          } catch (error) {
+            toolResult = `Error executing tool: ${toolName}`;
+          }
         }
+        functionResponses.push({
+          functionResponse: {
+            name: toolName,
+            response: { content: toolResult },
+          },
+        });
       }
       // 4. 把工具的执行结果（Observation）作为下一条记录塞进我们的全局记忆，供大模型下一轮 while 循环使用
       globalMessages.push({
         role: "model",
-        parts: [
-          {
-            functionResponse: {
-              name: toolName,
-              response: { content: toolResult },
-            },
-          },
-        ],
+        parts: functionResponses,
       });
     } else {
       // 循环终点：AI 觉得不需要再调用工具了，拿到了最终的总结回复，准备退出 while 循环
@@ -162,10 +172,11 @@ function optimizeContextAfterTurn() {
       const parts: Part[] = msg.parts.map((part) => {
         // 如果发现某一部分是工具返回的结果
         if (part.functionResponse) {
-          const toolName = part.functionResponse.name;
+          const toolName = part.functionResponse.name as string;
 
+          const tools = [toolsName.readFile, toolsName.readDirectory, toolsName.executeCommand] as string[]
           // 如果是读文件或者读目录，里面可能包含几万字，直接把内容蒸发，只留一个已成功执行的信号！
-          if (toolName === "readFile" || toolName === "readDirectory") {
+          if (tools.includes(toolName)) {
             return {
               functionResponse: {
                 name: toolName,
@@ -182,7 +193,7 @@ function optimizeContextAfterTurn() {
     }
     return msg;
   });
-  console.log("当前受控记忆体快照: ", JSON.stringify(globalMessages, null, 2));
+  // console.log("当前受控记忆体快照: ", JSON.stringify(globalMessages, null, 2));
 
   // ============================================================================
   // 🔥 阶段 2：滑动窗口剪枝（新增：只留最近几轮的完整 Turn，其余干掉）
@@ -199,25 +210,31 @@ function optimizeContextAfterTurn() {
   // 2. 如果当前历史总的回合数，超过了我们设定的最大记忆长度
   if (userTurnIndices.length > MAX_CONVERSATION_TURNS) {
     // 找到分界线索引：比如有 5 个 user，我们要留最后 3 个，那就得从第 (5 - 3 = 2) 个 user 开始切
-    const cutIndex = userTurnIndices[userTurnIndices.length - MAX_CONVERSATION_TURNS];
+    const cutIndex =
+      userTurnIndices[userTurnIndices.length - MAX_CONVERSATION_TURNS];
 
-    console.log(`✂️ [滑动窗口] 历史对话已达 ${userTurnIndices.length} 轮，正在切除前 ${userTurnIndices.length - MAX_CONVERSATION_TURNS} 轮的久远记忆...`);
+    console.log(
+      `✂️ [滑动窗口] 历史对话已达 ${userTurnIndices.length} 轮，正在切除前 ${userTurnIndices.length - MAX_CONVERSATION_TURNS} 轮的久远记忆...`,
+    );
 
     // 裁剪数组，分界线之前的老古董记忆彻底灰飞烟灭！
     globalMessages = globalMessages.slice(cutIndex);
-
   }
   try {
-    fs.writeFileSync(CACHE_FILE_PATH, JSON.stringify(globalMessages, null, 2), "utf-8");
+    fs.writeFileSync(
+      CACHE_FILE_PATH,
+      JSON.stringify(globalMessages, null, 2),
+      "utf-8",
+    );
     console.log("🧹 [Context Optimized] 写入了历史记忆到文件");
   } catch (error: any) {
     console.error("❌ 写入历史记忆失败:", error.message);
   }
 
-
   // 打印当前健康的记忆状态
-  console.log(`📊 [窗口状态] 当前常驻记忆体队列长度: ${globalMessages.length} 条记录`);
-
+  console.log(
+    `📊 [窗口状态] 当前常驻记忆体队列长度: ${globalMessages.length} 条记录`,
+  );
 }
 
 // 7. 启动 CLI 交互界面
@@ -239,12 +256,14 @@ function startCLI() {
       }
       // clear
 
-      if (command === 'clear') {
+      if (command === "clear") {
         globalMessages = [];
         if (fs.existsSync(CACHE_FILE_PATH)) {
           fs.unlinkSync(CACHE_FILE_PATH); // 物理删除缓存文件
         }
-        console.log("🧹 [记忆重置] Agent 已经忘记了过去的一切，现在它是个初生婴儿了。");
+        console.log(
+          "🧹 [记忆重置] Agent 已经忘记了过去的一切，现在它是个初生婴儿了。",
+        );
         promptUser();
         return;
       }
