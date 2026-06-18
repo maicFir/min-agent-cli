@@ -78,3 +78,22 @@ export const executeCommandDeclaration: FunctionDeclaration = {
     required: ["command"],
   },
 };
+
+export const dispatchTaskDeclaration: FunctionDeclaration = {
+  name: "dispatchTask",
+  description: "当需要安排下属专家执行具体工作时调用此工具。每次只能派发一个任务，等下属汇报结果后，再派发下一个。",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      worker: {
+        type: Type.STRING,
+        description: "接收任务的专家。'CODER' 负责读写代码文件；'TESTER' 负责运行终端编译或测试命令。",
+      },
+      taskInstruction: {
+        type: Type.STRING,
+        description: "具体要这个专家执行的详细指令。例如：'帮我查看 src/index.ts 的内容并修复其中的类型 Bug'。",
+      },
+    },
+    required: ["worker", "taskInstruction"],
+  },
+};

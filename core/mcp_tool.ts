@@ -75,3 +75,5 @@ export const execCommandTool = ({ command }: { command: string }) => {
     return `❌ Command Failed with Error:\n${error.stdout || error.message}`;
   }
 };
+
+

@@ -1,7 +1,7 @@
 
 /**
  * 
- * @description 路由型与Supervisor架构agent
+ * @description 单兵流式agent
  */
 import { GoogleGenAI, ContentListUnion, Content, Part } from "@google/genai";
 import * as fs from "fs";
@@ -104,130 +104,96 @@ function loaderMemory(): Content[] {
   return [];
 }
 
-// 全局 Supervisor 记忆体（保持 PM 的全局掌控感）
-let supervisorMessages: Content[] = [];
+let globalMessages: Content[] = [];
 
-supervisorMessages = loaderMemory();
+globalMessages = loaderMemory();
 
-// 改造原有的流式循环，变成一个可以被随时调用的独立 Worker 模块
-async function runWorker(workerType: "CODER" | "TESTER", instruction: string): Promise<string> {
-  console.log(`\n[团队协同] 🏃 专家 ${workerType} 开始执行任务: "${instruction}"...`);
+// 6. Agent 核心协调循环（纯粹负责单次对话的工具调用状态机）
+async function handleAgentTurn(userInput: string) {
+  console.log(`\n🤖 Agent 正在思考: "${userInput}"...`);
 
-  // 组装专门针对该专家的独立受控上下文，防止污染 Supervisor 的记忆
-  let workerMessages: Content[] = [{ role: "user", parts: [{ text: instruction }] }];
-  let currentConfig = workerType === "CODER" ? coderConfig : testerConfig;
+  globalMessages.push({ role: "user", parts: [{ text: userInput }] });
+
   let hasFunctionCalls = true;
-  let finalResponseText = "";
+  let responseText = "";
 
+  // 核心 Response Loop：如果 AI 调用了工具，就执行工具并反馈，直到 AI 停止调用
   while (hasFunctionCalls) {
-    const responseStream = await ai.models.generateContentStream({
+    // 2. 发送请求：统一使用最底层的 generateContent，传入我们完全清洗/受控后的 contents 历史
+    const result = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: workerMessages,
-      config: currentConfig, // 👈 动态传入专家的特定工具箱
+      contents: globalMessages, // 👈 每次发送的都是最新的受控数组
+      config,
     });
 
-    let currentTurnFunctionCalls: any[] = [];
-    for await (const chunk of responseStream) {
-      if (chunk.text) {
-        process.stdout.write(chunk.text); // 实时打印专家的思考过程
-        finalResponseText += chunk.text;
-      }
-      if (chunk.functionCalls && chunk.functionCalls.length > 0) {
-        currentTurnFunctionCalls.push(...chunk.functionCalls);
-      }
+    const candidate = result.candidates?.[0];
+    const message = candidate?.content;
+
+    if (!message) {
+      break;
     }
 
-    if (currentTurnFunctionCalls.length > 0) {
+    // 3. 把大模型的思考/决策（无论是想调工具，还是最终回复）同步存入我们的全局记忆中
+    globalMessages.push(message);
+
+    // 检查 AI 是否需要调用工具
+    if (result?.functionCalls && result.functionCalls.length > 0) {
+
+      // 建立一个本轮并行的响应集
       const functionResponses: Part[] = [];
-      workerMessages.push({ role: "model", parts: currentTurnFunctionCalls.map(call => ({ functionCall: call })) });
 
-      for (const functionCall of currentTurnFunctionCalls) {
-        const toolName = functionCall?.name;
+      for (let functionCall of result.functionCalls) {
+        if (!functionCall || !functionCall.name) break;
+        const toolName = functionCall.name;
         const args = functionCall.args as any;
-
-        // 运行你在 toolsMap 注册的真实读写/执行命令函数
+        console.log(
+          `🔧 Agent 调用了工具: ${toolName}，参数: ${JSON.stringify(args)}`,
+        );
         let toolResult = "";
-        if (toolName) {
-          const toolFn = toolsMap[toolName];
-          if (toolFn) {
-            toolResult = await toolFn(args);
+        if (toolName && toolsMap[toolName]) {
+          try {
+            toolResult = toolsMap[toolName](args);
+          } catch (error) {
+            toolResult = `Error executing tool: ${toolName}`;
           }
         }
-
-        functionResponses.push({ functionResponse: { name: toolName, response: { content: toolResult } } });
+        functionResponses.push({
+          functionResponse: {
+            name: toolName,
+            response: { content: toolResult },
+          },
+        });
       }
-      workerMessages.push({ role: "model", parts: functionResponses });
+      // 4. 把工具的执行结果（Observation）作为下一条记录塞进我们的全局记忆，供大模型下一轮 while 循环使用
+      globalMessages.push({
+        role: "model",
+        parts: functionResponses,
+      });
     } else {
-      workerMessages.push({ role: "model", parts: [{ text: finalResponseText }] });
+      // 循环终点：AI 觉得不需要再调用工具了，拿到了最终的总结回复，准备退出 while 循环
+      responseText = result.text || "";
       hasFunctionCalls = false;
     }
   }
-  return finalResponseText; // 把专家的工作汇报返回给 Supervisor
-}
 
-// 🚀 全新顶层 Supervisor 调度核心
-async function handleSupervisorTurn(userInput: string) {
-  console.log(`\n👨‍💼 [Supervisor] 正在规划任务...`);
-  supervisorMessages.push({ role: "user", parts: [{ text: userInput }] });
+  // AI 停止调用工具，输出最终答案
+  console.log(`\n🤖 AI 的回复:\n----------------------------`);
+  console.log(responseText);
+  console.log(`----------------------------\n`);
 
-  let isProjectActive = true;
-
-  while (isProjectActive) {
-    // 1. 让导师进行顶层宏观思考
-    const result = await ai.models.generateContent({
-      model: "gemini-2.5-flash", // 生产环境中建议导师采用更聪明的 gemini-2.5-pro 控场，员工用 flash 执行
-      contents: supervisorMessages,
-      config: supervisorConfig,
-    });
-
-    const message = result.candidates?.[0]?.content;
-    if (!message) break;
-
-    supervisorMessages.push(message);
-
-    // 2. 检查导师是否下达了派工单（dispatchTask）
-    if (result.functionCalls && result.functionCalls.length > 0) {
-      const call = result.functionCalls[0];
-      if (call && call.name === "dispatchTask") {
-        const { worker, taskInstruction } = call.args as { worker: "CODER" | "TESTER"; taskInstruction: string };
-
-        // 3. 💥 唤醒对应的专家子状态机，去物理世界干活，并拿到专家的汇报
-        const workerReport = await runWorker(worker, taskInstruction);
-
-        // 4. 把专家的汇报塞回给导师的记忆里，导师会在下一轮 while 循环里审查这个报告
-        supervisorMessages.push({
-          role: "model",
-          parts: [{
-            functionResponse: {
-              name: "dispatchTask",
-              response: { content: `报告导师，我是 ${worker}。我的工作已结束，汇报如下：\n${workerReport}` },
-            },
-          }],
-        });
-      }
-    } else {
-      // 5. 导师不再派发任务，认为项目可以完美交付，输出对用户的最终总结
-      console.log(`\n👨‍💼 [Supervisor] 最终项目交付报告:\n----------------------------`);
-      console.log(result.text);
-      console.log(`----------------------------\n`);
-      isProjectActive = false;
-    }
-  }
   // 🔥 核心进阶：上下文剪枝与压缩
   // ============================================================================
   console.log(
     "🧹 [Context 优化] 正在剪枝本轮中间的庞大文件数据，释放 Token 空间...",
   );
   optimizeContextAfterTurn();
-
 }
-
 
 function optimizeContextAfterTurn() {
   // 设定你期望 Agent 最多能保留几轮的上下文记忆（通常 3 ~ 5 轮最佳）
   const MAX_CONVERSATION_TURNS = 3;
   // 我们只把那些携带庞大本地文件内容的 functionResponse 里面的具体 content 进行“摘要化”或者清空
-  supervisorMessages = supervisorMessages.map((msg) => {
+  globalMessages = globalMessages.map((msg) => {
     if (msg.role === "model" && msg.parts) {
       const parts: Part[] = msg.parts.map((part) => {
         // 如果发现某一部分是工具返回的结果
@@ -261,7 +227,7 @@ function optimizeContextAfterTurn() {
 
   // 1. 我们通过寻找数组中的 "role: 'user'" 来标识一轮新对话的起点
   const userTurnIndices: number[] = [];
-  supervisorMessages.forEach((msg, index) => {
+  globalMessages.forEach((msg, index) => {
     if (msg.role === "user") {
       userTurnIndices.push(index);
     }
@@ -278,12 +244,12 @@ function optimizeContextAfterTurn() {
     );
 
     // 裁剪数组，分界线之前的老古董记忆彻底灰飞烟灭！
-    supervisorMessages = supervisorMessages.slice(cutIndex);
+    globalMessages = globalMessages.slice(cutIndex);
   }
   try {
     fs.writeFileSync(
       CACHE_FILE_PATH,
-      JSON.stringify(supervisorMessages, null, 2),
+      JSON.stringify(globalMessages, null, 2),
       "utf-8",
     );
     console.log("🧹 [Context Optimized] 写入了历史记忆到文件");
@@ -293,7 +259,7 @@ function optimizeContextAfterTurn() {
 
   // 打印当前健康的记忆状态
   console.log(
-    `📊 [窗口状态] 当前常驻记忆体队列长度: ${supervisorMessages.length} 条记录`,
+    `📊 [窗口状态] 当前常驻记忆体队列长度: ${globalMessages.length} 条记录`,
   );
 }
 
@@ -317,7 +283,7 @@ function startCLI() {
       // clear
 
       if (command === "clear") {
-        supervisorMessages = [];
+        globalMessages = [];
         if (fs.existsSync(CACHE_FILE_PATH)) {
           fs.unlinkSync(CACHE_FILE_PATH); // 物理删除缓存文件
         }
@@ -331,7 +297,7 @@ function startCLI() {
       if (input.trim()) {
         try {
           // 执行单回合的 Agent 思考与工具调用
-          await handleSupervisorTurn(input);
+          await handleAgentTurn(input);
         } catch (error) {
           console.error("❌ 运行出错:", error);
         }

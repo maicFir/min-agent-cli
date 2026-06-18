@@ -16,6 +16,7 @@
         "@google/genai": "^2.8.0",
         "ai": "^6.0.197",
         "dotenv": "^17.4.2",
+        "ora": "^9.4.0",
         "tsup": "^8.5.1"
     },
     "devDependencies": {
