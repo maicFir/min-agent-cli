@@ -15,7 +15,7 @@ import {
   writefileTool,
   readDirectoryTool,
   execCommandTool,
-} from "./mcp_tool";
+} from "../core/mcp_tool";
 import {
   writeFileDeclaration,
   readDirectoryDeclaration,
@@ -23,7 +23,7 @@ import {
   executeCommandDeclaration,
   dispatchTaskDeclaration,
   toolsName
-} from "./mcp_tool_declaration";
+} from "../core/mcp_tool_declaration";
 
 
 
