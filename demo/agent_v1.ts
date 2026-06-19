@@ -9,9 +9,18 @@ import * as path from "path";
 import * as readline from "readline";
 import * as dotenv from "dotenv";
 
-import { McpClientManager } from "./mcp_manage";
 
 import {
+  readfileTool,
+  writefileTool,
+  readDirectoryTool,
+  execCommandTool,
+} from "./mcp_tool";
+import {
+  writeFileDeclaration,
+  readDirectoryDeclaration,
+  readFileDeclaration,
+  executeCommandDeclaration,
   dispatchTaskDeclaration,
   toolsName
 } from "./mcp_tool_declaration";
@@ -36,18 +45,22 @@ const ai = new GoogleGenAI({
   apiKey,
 });
 
-// 初始化外部 MCP 连接管理器
-const mcpManager = new McpClientManager(path.resolve(process.cwd(), "mcp_config.json"));
-
+// 工具映射表
+const toolsMap: Record<string, Function> = {
+  [toolsName.readFile]: readfileTool,
+  [toolsName.writeFile]: writefileTool,
+  [toolsName.readDirectory]: readDirectoryTool,
+  [toolsName.executeCommand]: execCommandTool,
+};
 
 const coderConfig = {
   systemInstruction: "你是一个精通前端的代码专家。你的唯一职责是根据任务规划，阅读代码、修改代码或创建文件。修改文件时必须调用 writeFile。不要做任何编译或测试工作。",
-  tools: [{ functionDeclarations: mcpManager.globalDeclarations }],
+  tools: [{ functionDeclarations: [readFileDeclaration, writeFileDeclaration, readDirectoryDeclaration] }],
 };
 
 const testerConfig = {
   systemInstruction: "你是一个严谨的自动化测试与构建专家。你的唯一职责是运行终端命令（如 npm run build, npm test），检查代码是否存在编译错误或单测失败，并将终端报错一字不漏地反馈出来。",
-  tools: [{ functionDeclarations: mcpManager.globalDeclarations }],
+  tools: [{ functionDeclarations: [executeCommandDeclaration] }],
 };
 
 const supervisorConfig = {
@@ -60,6 +73,20 @@ const supervisorConfig = {
   tools: [{ functionDeclarations: [dispatchTaskDeclaration] }],
 };
 
+const config = {
+  systemInstruction:
+    "你是一个专业的 CLI 编程助手。你拥有访问和修改本地文件的能力。请通过调用工具（如读取文件、写入文件）来满足用户的需求。",
+  tools: [
+    {
+      functionDeclarations: [
+        readFileDeclaration,
+        writeFileDeclaration,
+        readDirectoryDeclaration,
+        executeCommandDeclaration,
+      ],
+    },
+  ],
+};
 
 // 5. 加载记忆
 function loaderMemory(): Content[] {
@@ -119,13 +146,15 @@ async function runWorker(workerType: "CODER" | "TESTER", instruction: string): P
         const args = functionCall.args as any;
 
         // 运行你在 toolsMap 注册的真实读写/执行命令函数
-        let mcpResult: any = {};
+        let toolResult = "";
         if (toolName) {
-          mcpResult = await mcpManager.callMcpTool(toolName, args);
+          const toolFn = toolsMap[toolName];
+          if (toolFn) {
+            toolResult = await toolFn(args);
+          }
         }
-        const rawTextResult = mcpResult?.content?.[0]?.text || JSON.stringify(mcpResult);
 
-        functionResponses.push({ functionResponse: { name: toolName, response: { content: rawTextResult } } });
+        functionResponses.push({ functionResponse: { name: toolName, response: { content: toolResult } } });
       }
       workerMessages.push({ role: "model", parts: functionResponses });
     } else {
