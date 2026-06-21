@@ -1,118 +1,105 @@
-# Mini Agent CLI
+# 🚀 mini-agent-cli (Ink Edition)
 
-一个基于 Gemini (`gemini-2.5-flash`) 构建的极简命令行 AI 智能体 (Agent)。它支持多轮对话上下文记忆，并通过 **ReAct (Reasoning and Acting) 决策循环** 调用本地工具，实现对本地文件系统的读取、修改与目录结构浏览。
+一个基于 Google Gemini (`gemini-2.5-flash` / `gemini-2.5-pro`) 构建的**极简但强大**的终端 AI 智能体 (Agent) 交互界面。
+
+在最近的重构中，我们摒弃了传统的 `readline` 交互，引入了基于 **React & Ink** 的精美终端 UI，并采用了 **Supervisor - Worker** 多 Agent 协同架构与 **MCP (Model Context Protocol)** 进行底层解耦。
 
 ---
 
 ## 🌟 核心特性
 
-1. **双版本实现 (SDK & Native Fetch)**：
-   - `agent.ts`：使用官方最新的官方 JavaScript SDK (`@google/genai`) 实现。
-   - `agent_fetch.ts`：纯原生 `fetch` 请求 Google AI Studio REST API 实现，展示了最底层的 API 协议交互逻辑。
-2. **丰富的 Agent 本地工具 (Tools)**：
-   - `readDirectory`：列出指定目录结构，过滤掉庞大的冗余文件夹（如 `node_modules`、`.git` 等）。
-   - `readFile`：读取并查看本地代码或文本文件内容。
-   - `writeFile`：自动创建或覆盖写入文件内容（当大模型需要编写或修改代码时触发）。
-3. **接口调试与抓包功能 (`log.ts`)**：
-   - 内置拦截 `globalThis.fetch` 的 Hook，能够优雅地在终端格式化输出每一次请求的 Payload 和 API 的响应数据，是调试 Agent 决策链的强力帮手。
-4. **即时执行**：
-   - 采用 `tsx` (TypeScript Execute) 运行，无需手动执行繁琐的 `tsc` 静态编译即可享受强类型的开发体验。
+1. **✨ 极致交互体验 (Powered by Ink)**：
+   - 采用 React 构建的现代化终端 UI。
+   - 支持流式输出（Streaming），实时看到 Agent 的思考过程。
+   - 内置强大的交互式指令输入框，输入 `/` 即可触发指令下拉补全与键盘上下导航。
+
+2. **🧠 导师-员工 (Supervisor-Worker) 协同架构**：
+   - **Supervisor (高阶架构师)**：负责拆解复杂任务，宏观规划，并将具体工作下发给对应的专家。
+   - **CODER (代码专家)**：负责读取、修改源码，创建新文件。
+   - **TESTER (测试专家)**：负责执行终端命令（如构建、测试）并严格验收结果。
+
+3. **🔌 MCP (Model Context Protocol) 驱动的工具链**：
+   - 工具调用能力与核心决策逻辑剥离，通过统一的 `McpClientManager` 进行管理。
+   - 核心工具包括：`readDirectory`, `readFile`, `writeFile`, `executeCommand` 等，安全、高效地操控物理世界。
+
+4. **🧹 智能上下文剪枝 (Context Pruning)**：
+   - 自动维护对话窗口，剪枝冗长的大文件读取记录，避免 Token 爆炸，并在多轮对话中始终保持 Agent 的敏锐度。
 
 ---
 
-## 📁 项目目录结构
+## 📦 安装与使用
 
-```text
-├── agent.ts           # 基于 @google/genai 官方 SDK 实现的 Agent 主入口
-├── agent_fetch.ts     # 基于原生 fetch 请求 Google AI Studio 接口的 Agent 主入口
-├── log.ts             # 拦截全局 fetch 用于打印大模型请求/响应日志的 Hook
-├── utils/
-│   └── index.ts       # 工具函数库
-├── test.ts            # 用于 Agent 演示修改/读取的测试代码文件
-├── tsconfig.json      # TypeScript 配置
-├── package.json       # 项目依赖及配置
-└── .env               # 环境变量配置文件 (包含 API Key)
-```
+本项目已打包并发布，你可以直接通过 NPM 全局安装并随时随地在终端中唤醒它！
 
----
-
-## 🚀 快速开始
-
-### 1. 安装依赖
-在项目根目录下，安装声明的依赖包：
+### 1. 全局安装
 ```bash
-npm install
+npm install -g @maicfir/mini-agent-cli
 ```
 
 ### 2. 配置环境变量
-复制根目录下的 `.env.example` 为 `.env` 文件，并填写你的 Gemini API Key：
-```ini
-GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key_here
+在使用前，你需要在系统的环境变量中配置你的 Gemini API Key。你可以在 `~/.bashrc` 或 `~/.zshrc` 中添加：
+```bash
+export GEMINI_API_KEY="your_gemini_api_key_here"
 ```
 
-### 3. 运行 Agent
-
-你可以根据喜好选择启动不同的入口：
-
-#### 运行 SDK 版本：
+### 3. 启动 Agent
+在任何目录下，打开终端并输入以下命令即可唤醒你的私人 AI 助手：
 ```bash
-npx tsx agent.ts
-```
-
-#### 运行原生 Fetch 版本：
-```bash
-npx tsx agent_fetch.ts
+start-agent-cli
 ```
 
 ---
 
-## 🛠️ 高级功能：API 调试抓包
+## 💻 交互指令 (Slash Commands)
 
-如果你需要查看 Agent 每一个步骤发送给大模型的具体参数（如提示词、工具声明、多轮对话内容）以及大模型返回的原始 JSON，只需在 `agent.ts` 或 `agent_fetch.ts` 顶部取消注释导入日志 Hook 即可：
+在 CLI 运行后，除了直接输入自然语言对话外，你还可以输入 `/` 呼出快捷指令菜单：
 
-```typescript
-// 在文件头部取消这行注释
-import "./log.js";
-```
+- `/help`：查看所有的可用指令及帮助信息。
+- `/clear`：清除 Agent 的所有上下文记忆，让它恢复到初始化的白纸状态。
+- `/exit`：安全退出当前 CLI 会话。
 
-开启后，每次 Agent 思考或调用本地工具时，终端都会打印类似如下的信息：
+---
+
+## 📁 核心目录结构
+
+本项目结构清晰，高度解耦，方便二次开发与扩展：
 
 ```text
-================ [API 请求 Request] ================
-URL: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSy...
-Method: POST
-Payload: {
-  "contents": [
-    {
-      "role": "user",
-      "parts": [
-        {
-          "text": "帮我看看当前目录有什么文件"
-        }
-      ]
-    }
-  ],
-  ...
-}
-
-================ [API 响应 Response] ================
-Status: 200 OK
-Data: {
-  "candidates": [
-    {
-      "content": {
-        "parts": [
-          {
-            "functionCall": {
-              "name": "readDirectory",
-              "args": {
-                "dirPath": "."
-              }
-            }
-          }
-        ]
-      }
-    }
-  ]
-}
+├── index.tsx          # CLI 启动主入口文件
+├── package.json       # 包配置及依赖 (发布配置)
+├── core/
+│   ├── agent.ts       # Agent 核心逻辑、状态机与 API 调度
+│   ├── mcp_manage.ts  # MCP 客户端管理器，负责与本地 MCP Server 进程通信
+│   └── ...
+├── ui/
+│   ├── App.tsx        # React & Ink 终端界面的主容器
+│   ├── ChatInput.tsx  # 支持 `/` 下拉补全的交互式输入框
+│   └── MessageList.tsx# 历史对话渲染组件
+└── demo/              # 历史遗留与实验性代码参考 (如单例版、fetch 版)
 ```
+
+---
+
+## 🛠️ 本地二次开发
+
+如果你希望在本地克隆代码并进行二次开发：
+
+1. **安装依赖**：
+   ```bash
+   npm install
+   ```
+2. **本地测试运行**：
+   采用 `tsx` 引擎，无需手动编译即可直接执行 TypeScript & TSX 代码：
+   ```bash
+   npx tsx index.tsx
+   ```
+3. **构建与本地链接**：
+   ```bash
+   npm run build
+   npm link
+   start-agent-cli
+   ```
+
+---
+
+*Made with ❤️ by MaicFir.*
