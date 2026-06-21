@@ -120,6 +120,7 @@ async function runWorker(workerType: "CODER" | "TESTER", instruction: string): P
 
         // 运行你在 toolsMap 注册的真实读写/执行命令函数
         let mcpResult: any = {};
+
         if (toolName) {
           mcpResult = await mcpManager.callMcpTool(toolName, args);
         }

@@ -73,20 +73,20 @@ const supervisorConfig = {
   tools: [{ functionDeclarations: [dispatchTaskDeclaration] }],
 };
 
-const config = {
-  systemInstruction:
-    "你是一个专业的 CLI 编程助手。你拥有访问和修改本地文件的能力。请通过调用工具（如读取文件、写入文件）来满足用户的需求。",
-  tools: [
-    {
-      functionDeclarations: [
-        readFileDeclaration,
-        writeFileDeclaration,
-        readDirectoryDeclaration,
-        executeCommandDeclaration,
-      ],
-    },
-  ],
-};
+// const config = {
+//   systemInstruction:
+//     "你是一个专业的 CLI 编程助手。你拥有访问和修改本地文件的能力。请通过调用工具（如读取文件、写入文件）来满足用户的需求。",
+//   tools: [
+//     {
+//       functionDeclarations: [
+//         readFileDeclaration,
+//         writeFileDeclaration,
+//         readDirectoryDeclaration,
+//         executeCommandDeclaration,
+//       ],
+//     },
+//   ],
+// };
 
 // 5. 加载记忆
 function loaderMemory(): Content[] {
@@ -175,7 +175,7 @@ async function handleSupervisorTurn(userInput: string) {
   while (isProjectActive) {
     // 1. 让导师进行顶层宏观思考
     const result = await ai.models.generateContent({
-      model: "gemini-2.5-flash", // 生产环境中建议导师采用更聪明的 gemini-2.5-pro 控场，员工用 flash 执行
+      model: "gemini-2.5-pro", // 生产环境中建议导师采用更聪明的 gemini-2.5-pro 控场，员工用 flash 执行
       contents: supervisorMessages,
       config: supervisorConfig,
     });
