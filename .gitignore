@@ -1,7 +1,7 @@
 # 1. 极其重要：锁死环境变量和私钥文件，绝对不允许提交
 .env
 .env.local
-*.json
+# *.json
 !package.json
 
 # 2. 忽略 Node.js 依赖包目录

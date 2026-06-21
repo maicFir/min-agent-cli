@@ -1,26 +1,58 @@
 {
-    "name": "mini-agent-cli",
+    "name": "@maicfir/mini-agent-cli",
     "version": "1.0.0",
-    "description": "",
-    "main": "index.js",
+    "bin": {
+        "start-agent-cli": "./dist/index.js"
+    },
+    "description": "A minimal, interactive AI Agent CLI built with Gemini 2.5 and Ink (React).",
+    "main": "dist/index.js",
+    "publishConfig": {
+        "access": "public"
+    },
+    "files": [
+        "dist"
+    ],
+    "engines": {
+        "node": ">=18.0.0"
+    },
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
-        "build": "tsc --noEmit && tsup core/agent.ts --format esm --clean --sourcemap",
-        "build2": "tsc -p tsconfig.build.json"
+        "build": "tsup index.tsx --format esm --clean",
+        "prepublishOnly": "npm run build"
     },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
+    "keywords": [
+        "ai",
+        "agent",
+        "gemini",
+        "cli",
+        "ink",
+        "react",
+        "mcp"
+    ],
+    "author": "maicFir",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/maicFir/min-agent-cli.git"
+    },
+    "bugs": {
+        "url": "https://github.com/maicFir/min-agent-cli/issues"
+    },
+    "homepage": "https://github.com/maicFir/min-agent-cli#readme",
     "type": "module",
     "dependencies": {
         "@google/genai": "^2.8.0",
         "ai": "^6.0.197",
         "dotenv": "^17.4.2",
+        "ink": "^7.1.0",
+        "ink-text-input": "^6.0.0",
         "ora": "^9.4.0",
+        "react": "^19.2.7",
         "tsup": "^8.5.1"
     },
     "devDependencies": {
         "@types/node": "^25.9.1",
+        "@types/react": "^19.2.17",
         "tsx": "^4.22.4",
         "typescript": "^6.0.3"
     }

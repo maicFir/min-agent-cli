@@ -3,10 +3,9 @@
  * 
  * @description Supervisor架构agent
  */
-import { GoogleGenAI, ContentListUnion, Content, Part } from "@google/genai";
+import { GoogleGenAI, Content, Part } from "@google/genai";
 import * as fs from "fs";
 import * as path from "path";
-import * as readline from "readline";
 import * as dotenv from "dotenv";
 
 import { McpClientManager } from "./mcp_manage";
@@ -25,10 +24,10 @@ const CACHE_FILE_PATH = path.resolve(process.cwd(), ".agent_cache.json");
 dotenv.config();
 
 // 2、接入ai sdk
-const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY;
 if (!apiKey) {
   throw new Error(
-    "GOOGLE_GENERATIVE_AI_API_KEY environment variable is not set",
+    "GOOGLE_GENERATIVE_AI_API_KEY or GEMINI_API_KEY environment variable is not set",
   );
 }
 
@@ -82,9 +81,14 @@ let supervisorMessages: Content[] = [];
 
 supervisorMessages = loaderMemory();
 
+export interface AgentCallbacks {
+  onToken?: (text: string) => void;
+  onLog?: (text: string) => void;
+}
+
 // 改造原有的流式循环，变成一个可以被随时调用的独立 Worker 模块
-async function runWorker(workerType: "CODER" | "TESTER", instruction: string): Promise<string> {
-  console.log(`\n[团队协同] 🏃 专家 ${workerType} 开始执行任务: "${instruction}"...`);
+async function runWorker(workerType: "CODER" | "TESTER", instruction: string, callbacks?: AgentCallbacks): Promise<string> {
+  if (callbacks?.onLog) callbacks.onLog(`\n[团队协同] 🏃 专家 ${workerType} 开始执行任务: "${instruction}"...`);
 
   // 组装专门针对该专家的独立受控上下文，防止污染 Supervisor 的记忆
   let workerMessages: Content[] = [{ role: "user", parts: [{ text: instruction }] }];
@@ -102,7 +106,7 @@ async function runWorker(workerType: "CODER" | "TESTER", instruction: string): P
     let currentTurnFunctionCalls: any[] = [];
     for await (const chunk of responseStream) {
       if (chunk.text) {
-        process.stdout.write(chunk.text); // 实时打印专家的思考过程
+        if (callbacks?.onToken) callbacks.onToken(chunk.text);
         finalResponseText += chunk.text;
       }
       if (chunk.functionCalls && chunk.functionCalls.length > 0) {
@@ -138,13 +142,15 @@ async function runWorker(workerType: "CODER" | "TESTER", instruction: string): P
 }
 
 // 🚀 全新顶层 Supervisor 调度核心
-async function handleSupervisorTurn(userInput: string) {
-  console.log(`\n👨‍💼 [Supervisor] 正在规划任务...`);
+export async function handleSupervisorTurn(userInput: string, callbacks?: AgentCallbacks) {
+  if (callbacks?.onLog) callbacks.onLog(`\n👨‍💼 [Supervisor] 正在规划任务...`);
   supervisorMessages.push({ role: "user", parts: [{ text: userInput }] });
 
   let isProjectActive = true;
 
   while (isProjectActive) {
+    // 每轮增加 3秒的等待时间，防止一次性触发太多次数api
+    await new Promise(resolve => setTimeout(resolve, 3000));
     // 1. 让导师进行顶层宏观思考
     const result = await ai.models.generateContent({
       model: "gemini-2.5-flash", // 生产环境中建议导师采用更聪明的 gemini-2.5-pro 控场，员工用 flash 执行
@@ -164,7 +170,7 @@ async function handleSupervisorTurn(userInput: string) {
         const { worker, taskInstruction } = call.args as { worker: "CODER" | "TESTER"; taskInstruction: string };
 
         // 3. 💥 唤醒对应的专家子状态机，去物理世界干活，并拿到专家的汇报
-        const workerReport = await runWorker(worker, taskInstruction);
+        const workerReport = await runWorker(worker, taskInstruction, callbacks);
 
         // 4. 把专家的汇报塞回给导师的记忆里，导师会在下一轮 while 循环里审查这个报告
         supervisorMessages.push({
@@ -179,23 +185,25 @@ async function handleSupervisorTurn(userInput: string) {
       }
     } else {
       // 5. 导师不再派发任务，认为项目可以完美交付，输出对用户的最终总结
-      console.log(`\n👨‍💼 [Supervisor] 最终项目交付报告:\n----------------------------`);
-      console.log(result.text);
-      console.log(`----------------------------\n`);
+      if (callbacks?.onLog) {
+        callbacks.onLog(`\n👨‍💼 [Supervisor] 最终项目交付报告:\n----------------------------`);
+        callbacks.onLog(result.text || "");
+        callbacks.onLog(`----------------------------\n`);
+      }
       isProjectActive = false;
     }
   }
   // 🔥 核心进阶：上下文剪枝与压缩
   // ============================================================================
-  console.log(
-    "🧹 [Context 优化] 正在剪枝本轮中间的庞大文件数据，释放 Token 空间...",
-  );
-  optimizeContextAfterTurn();
+  // ============================================================================
+  if (callbacks?.onLog) callbacks.onLog("🧹 [Context 优化] 正在剪枝本轮中间的庞大文件数据，释放 Token 空间...");
+  optimizeContextAfterTurn(callbacks);
 
 }
 
 
-function optimizeContextAfterTurn() {
+function optimizeContextAfterTurn(callbacks?: AgentCallbacks) {
+
   // 设定你期望 Agent 最多能保留几轮的上下文记忆（通常 3 ~ 5 轮最佳）
   const MAX_CONVERSATION_TURNS = 3;
   // 我们只把那些携带庞大本地文件内容的 functionResponse 里面的具体 content 进行“摘要化”或者清空
@@ -245,9 +253,7 @@ function optimizeContextAfterTurn() {
     const cutIndex =
       userTurnIndices[userTurnIndices.length - MAX_CONVERSATION_TURNS];
 
-    console.log(
-      `✂️ [滑动窗口] 历史对话已达 ${userTurnIndices.length} 轮，正在切除前 ${userTurnIndices.length - MAX_CONVERSATION_TURNS} 轮的久远记忆...`,
-    );
+    if (callbacks?.onLog) callbacks.onLog(`✂️ [滑动窗口] 历史对话已达 ${userTurnIndices.length} 轮，正在切除前 ${userTurnIndices.length - MAX_CONVERSATION_TURNS} 轮的久远记忆...`);
 
     // 裁剪数组，分界线之前的老古董记忆彻底灰飞烟灭！
     supervisorMessages = supervisorMessages.slice(cutIndex);
@@ -258,63 +264,20 @@ function optimizeContextAfterTurn() {
       JSON.stringify(supervisorMessages, null, 2),
       "utf-8",
     );
-    console.log("🧹 [Context Optimized] 写入了历史记忆到文件");
+    if (callbacks?.onLog) callbacks.onLog("🧹 [Context Optimized] 写入了历史记忆到文件");
   } catch (error: any) {
-    console.error("❌ 写入历史记忆失败:", error.message);
+    if (callbacks?.onLog) callbacks.onLog(`❌ 写入历史记忆失败: ${error.message}`);
   }
 
   // 打印当前健康的记忆状态
-  console.log(
-    `📊 [窗口状态] 当前常驻记忆体队列长度: ${supervisorMessages.length} 条记录`,
-  );
+  if (callbacks?.onLog) callbacks.onLog(`📊 [窗口状态] 当前常驻记忆体队列长度: ${supervisorMessages.length} 条记录`);
 }
 
-// 7. 启动 CLI 交互界面
-function startCLI() {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  console.log("🚀 mini-agent-cli 已成功启动！");
-
-  const promptUser = () => {
-    rl.question("请输入你的问题 (输入 'exit' 退出): ", async (input) => {
-      const command = input.trim().toLowerCase();
-      if (command === "exit") {
-        console.log("👋 再见！");
-        rl.close();
-        process.exit(0);
-      }
-      // clear
-
-      if (command === "clear") {
-        supervisorMessages = [];
-        if (fs.existsSync(CACHE_FILE_PATH)) {
-          fs.unlinkSync(CACHE_FILE_PATH); // 物理删除缓存文件
-        }
-        console.log(
-          "🧹 [记忆重置] Agent 已经忘记了过去的一切，现在它是个初生婴儿了。",
-        );
-        promptUser();
-        return;
-      }
-
-      if (input.trim()) {
-        try {
-          // 执行单回合的 Agent 思考与工具调用
-          await handleSupervisorTurn(input);
-        } catch (error) {
-          console.error("❌ 运行出错:", error);
-        }
-      }
-      // 回合结束后，再次安全地拉起下一次提问
-      promptUser();
-    });
-  };
-
-  promptUser();
+export function clearAgentMemory() {
+  supervisorMessages = [];
+  if (fs.existsSync(CACHE_FILE_PATH)) {
+    fs.unlinkSync(CACHE_FILE_PATH);
+  }
 }
 
-// 🚀 真正让程序跑起来的入口调用！
-startCLI();
+

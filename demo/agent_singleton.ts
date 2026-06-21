@@ -23,7 +23,7 @@ import {
   executeCommandDeclaration,
   dispatchTaskDeclaration,
   toolsName
-} from "./mcp_tool_declaration";
+} from "../core/mcp_tool_declaration";
 
 
 
@@ -53,25 +53,6 @@ const toolsMap: Record<string, Function> = {
   [toolsName.executeCommand]: execCommandTool,
 };
 
-const coderConfig = {
-  systemInstruction: "你是一个精通前端的代码专家。你的唯一职责是根据任务规划，阅读代码、修改代码或创建文件。修改文件时必须调用 writeFile。不要做任何编译或测试工作。",
-  tools: [{ functionDeclarations: [readFileDeclaration, writeFileDeclaration, readDirectoryDeclaration] }],
-};
-
-const testerConfig = {
-  systemInstruction: "你是一个严谨的自动化测试与构建专家。你的唯一职责是运行终端命令（如 npm run build, npm test），检查代码是否存在编译错误或单测失败，并将终端报错一字不漏地反馈出来。",
-  tools: [{ functionDeclarations: [executeCommandDeclaration] }],
-};
-
-const supervisorConfig = {
-  systemInstruction: `你是一个高阶软件架构师与项目导师(Supervisor)。你的职责是带领一个开发团队（CODER 和 TESTER）来完成用户复杂的开发需求。
-你的工作流程如下：
-1. 拆解需求：分析用户的问题，制定出分步计划。
-2. 调度执行：通过调用 'dispatchTask' 工具，将当前步骤派发给最合适的专家。
-3. 审查结果：专家执行完毕后会向你汇报。你需要评估结果，如果正确，继续派发下一步；如果出错，要求对应专家重新修复或重新测试。
-4. 交付：当所有编译、重构、测试确认完全无误通过后，向用户提交你的最终总结报告。`,
-  tools: [{ functionDeclarations: [dispatchTaskDeclaration] }],
-};
 
 const config = {
   systemInstruction:

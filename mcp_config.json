@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "maic-server-fs-mcp": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "maic-server-fs-mcp@1.0.5"
+            ]
+        }
+    }
+}

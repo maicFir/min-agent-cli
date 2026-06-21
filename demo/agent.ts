@@ -14,7 +14,7 @@ dotenv.config();
 
 // import "./log.js"
 // 2、接入ai sdk
-const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY;
 if (!apiKey) {
   throw new Error(
     "GOOGLE_GENERATIVE_AI_API_KEY environment variable is not set",
