@@ -1,6 +1,6 @@
 {
     "name": "@maicfir/mini-agent-cli",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "bin": {
         "start-agent-cli": "./dist/index.js"
     },

@@ -1,9 +1,10 @@
 {
     "mcpServers": {
         "maic-server-fs-mcp": {
-            "command": "node",
+            "command": "npx",
             "args": [
-                "/Users/maic/wmc/lessonNote/agent/maic-local-mcp-tool/dist/server.js"
+                "-y",
+                "maic-server-fs-mcp@1.0.6"
             ]
         }
     }
